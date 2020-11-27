@@ -1,0 +1,199 @@
+CREATE DEFINER=`root`@`localhost` PROCEDURE `text_interest`()
+BEGIN
+declare _customer_id varchar(255);
+declare _customer_amount_interest float;
+declare _customer_credit_used float;
+declare _customer_maintenance_amount float;
+declare _customer_maintenance_days int;
+declare _customer_minimun_payment_amount float;
+declare _customer_total_debt float;
+declare _fk_capitalization_id int;
+declare _fk_interest_id int;
+declare _fk_rate_id int;
+declare _operation_date varchar(255);
+declare _valor_futuro float;
+declare _days int;
+declare _days_maintenance int;
+declare _monto_con_intereses float;
+
+/*Probando pagos matenimiento*/
+declare _days_maintenance_actual int default 0;
+declare _date_last_payment varchar(255);
+declare _days_last_payment int;
+
+declare _days_test varchar(255);
+
+/*Para interes Nominal*/
+declare _rate_days int default 0;
+declare _capitalization_days int default  0;
+declare _m_days int default 0;
+declare _n_days int default 0;
+declare _n_days_float float default 0;
+/**/
+
+
+declare i int;
+declare total int;
+
+/*Obtenemos todos los clientes con interes simple*/
+declare c1 cursor for select customer_id,customer_amount_interest,customer_credit_used,customer_maintenance_amount,customer_maintenance_days,
+customer_minimun_payment_amount,customer_total_debt,fk_capitalization_id ,fk_interest_id,fk_rate_id, MAX(operation_date) from customers
+inner join operations on customers.customer_id=operations.fk_customer_id
+where fk_interest_id=1
+group by fk_customer_id;
+
+
+
+/*Obtenemos todos los clientes con interes nominal*/
+declare c1_2 cursor for select customer_id,customer_amount_interest,customer_credit_used,customer_maintenance_amount,customer_maintenance_days,
+customer_minimun_payment_amount,customer_total_debt,fk_capitalization_id ,fk_interest_id,fk_rate_id, MAX(operation_date), rate.days_amount,capitalization.days_amount from customers
+inner join operations on customers.customer_id=operations.fk_customer_id
+inner join rate on fk_rate_id=rate_id
+inner join capitalization on fk_capitalization_id=capitalization_id
+where fk_interest_id=2
+group by fk_customer_id
+order by customer_id;
+
+/*Obtenemos todos los clientes con interes efectiva*/
+declare c1_3 cursor for select customer_id,customer_amount_interest,customer_credit_used,customer_maintenance_amount,customer_maintenance_days,
+customer_minimun_payment_amount,customer_total_debt,fk_interest_id,fk_rate_id, MAX(operation_date), rate.days_amount from customers
+inner join operations on customers.customer_id=operations.fk_customer_id
+inner join rate on fk_rate_id=rate_id
+where fk_interest_id=3
+group by fk_customer_id
+order by customer_id  ;
+
+
+
+
+
+set i=1;
+
+set total=0;
+
+
+select count(*) into total from operations
+inner join customers on fk_customer_id=customer_id
+ where firts_operation=true and fk_interest_id=1;
+
+
+/*FECHA ACTUAL*/
+set _days_test=DATE_FORMAT(Now(), '%Y-%m-%d');
+
+open c1;
+/*Se recorre todos los customers con interes simple*/
+while i<=total do
+	fetch c1 into _customer_id,_customer_amount_interest,_customer_credit_used,_customer_maintenance_amount,_customer_maintenance_days,
+	_customer_minimun_payment_amount,_customer_total_debt,_fk_capitalization_id,_fk_interest_id,_fk_rate_id,_operation_date;
+
+    
+    /*Agregamos mantenimiento*/
+  
+    set _days= datediff( _days_test,_operation_date);
+    set _days_maintenance=FLOOR(_days/_customer_maintenance_days);
+    
+
+	/*Obtenemos ultima fecha de pago*/
+	select operation_date into _date_last_payment from operations  
+	inner join customers on customer_id=fk_customer_id
+	where fk_interest_id=1 and last_payment=true and customer_id=_customer_id;
+    
+	set _days_last_payment= datediff( _days_test,_date_last_payment);
+	set _days_maintenance_actual=FLOOR(_days_last_payment/_customer_maintenance_days);
+ 
+		
+ 
+	
+    set _monto_con_intereses=_customer_credit_used+_customer_minimun_payment_amount; 
+	set _valor_futuro=_monto_con_intereses*(1+(_customer_amount_interest/100)*(_days/360));
+		update db_prueba2.customers set customer_minimun_payment_amount=ROUND(_valor_futuro-customer_credit_used, 2),
+		customer_total_debt=ROUND(customer_credit_used+customer_minimun_payment_amount+_days_maintenance_actual*customer_maintenance_amount, 2)
+		where customer_id=_customer_id;
+
+   
+    
+	set i=i+1;
+end while;
+
+close c1;
+
+/*PARA INTERES NOMINAL*/
+set i=1;
+set total=0;
+
+
+select count(*) into total from operations
+inner join customers on fk_customer_id=customer_id
+ where firts_operation=true and fk_interest_id=2;
+ 
+ open c1_2;
+ while i<=total do
+	fetch c1_2 into _customer_id,_customer_amount_interest,_customer_credit_used,_customer_maintenance_amount,_customer_maintenance_days,
+	_customer_minimun_payment_amount,_customer_total_debt,_fk_capitalization_id,_fk_interest_id,_fk_rate_id,_operation_date,_rate_days,_capitalization_days;
+    
+    set _m_days=_rate_days/_capitalization_days;
+    set _n_days_float=datediff(_days_test,_operation_date)/_capitalization_days;
+
+
+    
+		select operation_date into _date_last_payment from operations  
+		inner join customers on customer_id=fk_customer_id
+		where fk_interest_id=2 and last_payment=true and customer_id=_customer_id;
+        
+        set _days_last_payment= datediff( _days_test,_date_last_payment);
+        set _days_maintenance_actual=FLOOR(_days_last_payment/_customer_maintenance_days);
+
+    set _monto_con_intereses=_customer_credit_used+_customer_minimun_payment_amount; 
+    set _valor_futuro=_monto_con_intereses*POW((1+(_customer_amount_interest/100)/(_m_days)),_n_days_float);
+   -- select _customer_id,_valor_futuro;
+		update db_prueba2.customers set customer_minimun_payment_amount=ROUND(_valor_futuro-customer_credit_used, 2),
+		customer_total_debt=ROUND(customer_credit_used+customer_minimun_payment_amount+_days_maintenance_actual*customer_maintenance_amount, 2)
+		where customer_id=_customer_id;
+   
+   
+ 
+    set i=i+1;
+ end while;
+ 
+ close c1_2;
+ 
+ /*PARA INTERES EFECTIVA*/
+set i=1;
+set total=0;
+
+
+select count(*) into total from operations
+inner join customers on fk_customer_id=customer_id
+ where firts_operation=true and fk_interest_id=3;
+ 
+ open c1_3;
+ while i<=total do
+	fetch c1_3 into _customer_id,_customer_amount_interest,_customer_credit_used,_customer_maintenance_amount,_customer_maintenance_days,
+	_customer_minimun_payment_amount,_customer_total_debt,_fk_interest_id,_fk_rate_id,_operation_date,_rate_days;
+    
+    set _n_days=datediff(_days_test,_operation_date);
+    
+		select operation_date into _date_last_payment from operations  
+		inner join customers on customer_id=fk_customer_id
+		where fk_interest_id=3 and last_payment=true and customer_id=_customer_id;
+        
+        set _days_last_payment= datediff( _days_test,_date_last_payment);
+        set _days_maintenance_actual=FLOOR(_days_last_payment/_customer_maintenance_days);
+
+    set _monto_con_intereses=_customer_credit_used+_customer_minimun_payment_amount;
+    set _valor_futuro= ROUND((_monto_con_intereses)*POW((1+(_customer_amount_interest/100)),_n_days/_rate_days), 2);
+    select _customer_credit_used+_customer_minimun_payment_amount,_customer_amount_interest,_valor_futuro,_n_days,_rate_days,_customer_id,_days_maintenance_actual*_customer_maintenance_amount;
+
+		update db_prueba2.customers set customer_minimun_payment_amount= ROUND(_valor_futuro-customer_credit_used, 2),
+		customer_total_debt= ROUND(customer_credit_used+customer_minimun_payment_amount+_days_maintenance_actual*customer_maintenance_amount, 2)
+		where customer_id=_customer_id;
+   
+   
+ 
+    set i=i+1;
+ end while;
+ 
+ close c1_3;
+
+
+End
